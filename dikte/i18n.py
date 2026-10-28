@@ -470,6 +470,9 @@ TR = {
         "Global kısayol kurulu değil. Toplantı tepsi menüsünden de başlatılabilir.",
     "No global shortcut installed. The tray menu asks it too.":
         "Global kısayol kurulu değil. Tepsi menüsünden de soru sorulabilir.",
+    "No global shortcut installed. The tray menu resets it too.":
+        "Global kısayol kurulu değil. Tepsi menüsünden de yeni sohbet başlatılabilir.",
+    "New conversation shortcut": "Yeni sohbet kısayolu",
     "No global shortcut installed. The tray menu discards it too.":
         "Global kısayol kurulu değil. Kayıt tepsi menüsünden de iptal edilebilir.",
     "No global shortcut installed. The tray menu holds it too.":

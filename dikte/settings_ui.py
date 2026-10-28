@@ -1838,6 +1838,10 @@ class SettingsWindow(QDialog):
             how_form, "ask", t("Shortcut"),
             t("No global shortcut installed. The tray menu asks it too."),
         )
+        self._shortcut_row(
+            how_form, "reset", t("New conversation shortcut"),
+            t("No global shortcut installed. The tray menu resets it too."),
+        )
 
         self.assistant_provider = QComboBox()
         for label, value in ASSISTANT_PROVIDERS:

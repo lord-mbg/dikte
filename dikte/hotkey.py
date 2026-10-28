@@ -37,6 +37,7 @@ CANCEL_DESKTOP_ID = "dikte-cancel.desktop"
 PAUSE_DESKTOP_ID = "dikte-pause.desktop"
 MEETING_DESKTOP_ID = "dikte-meeting.desktop"
 ASK_DESKTOP_ID = "dikte-ask.desktop"
+RESET_DESKTOP_ID = "dikte-new-chat.desktop"
 APPLICATIONS_DIR = pathlib.Path.home() / ".local/share/applications"
 DESKTOP_FILE = APPLICATIONS_DIR / DESKTOP_ID
 SHORTCUTS_FILE = pathlib.Path.home() / ".config/kglobalshortcutsrc"
@@ -59,6 +60,8 @@ SHORTCUTS = {
                        "cancel_shortcut", ""),
     "ask": Shortcut("ask", ASK_DESKTOP_ID, "Dikte: ask the agent",
                     "assistant_shortcut", ""),
+    "reset": Shortcut("reset", RESET_DESKTOP_ID, "Dikte: new agent conversation",
+                      "assistant_reset_shortcut", ""),
     "meeting": Shortcut("meeting", MEETING_DESKTOP_ID,
                         "Dikte: start/end a meeting recording",
                         "meeting_shortcut", ""),
@@ -197,14 +200,48 @@ class EvdevHotkey(QObject):
     def _loop(self, fds):
         held = set()
         try:
-            while not self._stop.is_set():
+            while fds and not self._stop.is_set():
                 # Short enough that stop() does not stall its caller waiting for
                 # the read to come back around.
-                ready, _, _ = select.select(fds, [], [], 0.15)
+                try:
+                    ready, _, _ = select.select(fds, [], [], 0.15)
+                except InterruptedError:
+                    continue
+                except OSError:
+                    # A device can disappear between two reads. Remove only
+                    # invalid descriptors, leaving other keyboards available.
+                    bad = []
+                    for fd in fds:
+                        try:
+                            os.fstat(fd)
+                        except OSError:
+                            bad.append(fd)
+                    if not bad:
+                        break  # An unknown select error must not spin either.
+                    for fd in bad:
+                        fds.remove(fd)
+                        try:
+                            os.close(fd)
+                        except OSError:
+                            pass
+                    held.clear()
+                    continue
                 for fd in ready:
                     try:
                         data = os.read(fd, self.EVENT_SIZE * 64)
-                    except (BlockingIOError, OSError):
+                    except (BlockingIOError, InterruptedError):
+                        continue
+                    except OSError:
+                        data = b""
+                    if not data:
+                        # EOF and permanent device errors stay readable in
+                        # select(); retrying them spins at 100% of a core.
+                        fds.remove(fd)
+                        try:
+                            os.close(fd)
+                        except OSError:
+                            pass
+                        held.clear()
                         continue
                     for offset in range(0, len(data) - self.EVENT_SIZE + 1, self.EVENT_SIZE):
                         _s, _us, etype, code, value = struct.unpack(

@@ -111,6 +111,13 @@ demedikçe ayarlarına ve diktelerine dokunmaz. Dikte sürüm sayfasına günde 
 kez bakar ve yeni sürüm çıkmışsa tepsi menüsüne bir satır koyar; o satır bir şey
 kurmaz, sayfayı açar. Genel sekmesi bu denetimi kapatır ya da anında çalıştırır.
 
+Bir giriş aygıtı kaybolursa Dikte kapanan kısayol dinleyicisini tekrar tekrar
+okumaz; yeniden bağlanan aygıtın kısayolları için Dikte'yi yeniden başlatmak
+gerekebilir. CPU güvenlik kilidi, Dikte'nin Python süreci tek çekirdeğin en az
+%90'ını kesintisiz 60 saniye kullanırsa uygulamayı kapatır. Ayrı çalışan ses
+modeli sunucusu bu ölçüme dahil değildir. Durdurma nedeni stderr'e (systemd
+oturumunda kullanıcı günlüğüne) yazılır; Dikte kendini otomatik yeniden açmaz.
+
 Sesi yazıya çevirme ve temizleme sağlayıcılarını Ayarlar'dan ayrı ayrı seç.
 Sesi yazıya çevirme varsayılan olarak yerelde, temizleme ise bulutta çalışır.
 Temizleme için yerel bir model veya kurulu bir CLI da kullanabilirsin.

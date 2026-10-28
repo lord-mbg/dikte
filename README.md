@@ -115,6 +115,13 @@ once a day and puts a line in the tray menu when a newer version is out, which
 opens the page rather than installing anything; the General tab turns that off
 or runs it on the spot.
 
+If an input device disappears, Dikte drops its dead shortcut listener instead
+of repeatedly reading it; reconnecting a device may require restarting Dikte
+to pick it up again. A CPU safety stop quits Dikte when its Python process
+uses at least 90% of one core continuously for 60 seconds. The separate
+speech-model server is not included. The stop is recorded on stderr (in the
+desktop session journal on systemd); Dikte does not restart itself after it.
+
 Choose speech-to-text and cleanup providers separately in Settings. Speech to
 text runs locally by default; cleanup uses a hosted provider by default, but
 can also run on a local model or through an installed CLI. Turn cleanup off to
@@ -143,6 +150,7 @@ Windows. On Linux and macOS, the file is written with mode 600.
 | Pause / resume the recording | Tray menu, `dikte pause`, or a key you set |
 | Discard the recording | `Ctrl+Alt+Space`, tray menu, or `dikte cancel` |
 | Speak a command to an agent | Tray menu → *Ask Claude*, or `dikte ask` |
+| Start the next agent command in a new conversation | Tray menu → *Start a new conversation*, `dikte ask-reset`, or your configured reset shortcut |
 | Start / end a meeting | Tray menu → *Record a meeting*, or `dikte meeting` |
 | Settings | Tray menu → *Settings*, or `dikte settings` |
 | Look for a newer version | General tab → *Check now*, or `dikte update` |

@@ -36,7 +36,7 @@ if sys.platform == "darwin":
     )
 
 from PyQt6.QtCore import (QObject, QTimer, QElapsedTimer, QSocketNotifier,  # noqa: E402
-                          Qt, QUrl, pyqtSignal)
+                          QMetaObject, Qt, QUrl, pyqtSignal)
 from PyQt6.QtGui import QAction, QCursor, QDesktopServices, QIcon  # noqa: E402
 from PyQt6.QtNetwork import QLocalServer, QLocalSocket  # noqa: E402
 from PyQt6.QtWidgets import QApplication, QMenu, QSystemTrayIcon  # noqa: E402
@@ -54,6 +54,7 @@ from . import integrate  # noqa: E402
 from . import ipc  # noqa: E402
 from . import mac_window  # noqa: E402
 from . import meeting  # noqa: E402
+from . import media  # noqa: E402
 from . import trayicon  # noqa: E402
 from . import update  # noqa: E402
 from .i18n import t  # noqa: E402
@@ -93,6 +94,46 @@ PEEK_MS = 12000
 # still asks once a day rather than once a boot.
 UPDATE_DELAY_MS = 20000
 UPDATE_POLL_MS = 3 * 3600 * 1000
+
+# The Python UI and input listener normally use almost no CPU. The speech
+# server runs in another process and is not counted here.
+CPU_GUARD_INTERVAL_S = 5
+CPU_GUARD_LIMIT = 0.9  # one core, regardless of how many cores the machine has
+CPU_GUARD_DURATION_S = 60
+CPU_GUARD_EXIT_GRACE_S = 10
+
+
+def _cpu_guard(app, stopped, *, interval=CPU_GUARD_INTERVAL_S,
+               limit=CPU_GUARD_LIMIT, duration=CPU_GUARD_DURATION_S,
+               grace=CPU_GUARD_EXIT_GRACE_S):
+    """Stop a runaway Dikte, even when its Qt event loop cannot answer."""
+    wall, cpu = time.monotonic(), time.process_time()
+    busy = 0.0
+    while not stopped.wait(interval):
+        now, used = time.monotonic(), time.process_time()
+        elapsed = now - wall
+        rate = (used - cpu) / elapsed if elapsed > 0 else 0
+        busy = busy + elapsed if rate >= limit else 0.0
+        wall, cpu = now, used
+        if busy < duration:
+            continue
+        print(f"dikte: CPU safety stop: {rate:.0%} of one core for "
+              f"{busy:.0f}s", file=sys.stderr, flush=True)
+        # The Qt thread owns shutdown: recordings and the model server are
+        # closed there. If that thread is wedged, do not leave a hot loop alive.
+        QMetaObject.invokeMethod(app, "quit", Qt.ConnectionType.QueuedConnection)
+        if not stopped.wait(grace):
+            os._exit(1)
+        return
+
+
+def _start_cpu_guard(app):
+    stopped = threading.Event()
+    # Registered after shutdown, so a stop is acknowledged only when model
+    # servers and recorders have actually been closed.
+    app.aboutToQuit.connect(stopped.set)
+    threading.Thread(target=_cpu_guard, args=(app, stopped), daemon=True).start()
+
 
 
 class UpdateCheck(QObject):
@@ -227,6 +268,7 @@ class Dikte:
         self.meeting_elapsed = QElapsedTimer()
         self.last_toggle = {}   # action name -> QElapsedTimer, see _repeated
         self.last_evdev = {}
+        self._paused_media = []
         self.ticker = QTimer()
         self.ticker.setInterval(100)
         self.ticker.timeout.connect(self._tick)
@@ -518,9 +560,8 @@ class Dikte:
         # The snapshot from _apply_settings: which desktop this is cannot
         # change under a running process, and asking hotkey again here costs a
         # PATH scan on every key press.
-        if (self._registry_shortcuts and self.evdev.running
+        if (self.evdev.running
                 and timer is not None and timer.elapsed() < ECHO_MS):
-            self._retire_listener()
             return
         handler()
 
@@ -530,7 +571,8 @@ class Dikte:
             timer = self.last_evdev[name] = QElapsedTimer()
         timer.restart()
         handlers = {"meeting": self._toggle_meeting, "ask": self._toggle_ask,
-                    "cancel": self._cancel, "pause": self._toggle_pause}
+                    "cancel": self._cancel, "pause": self._toggle_pause,
+                    "reset": self.reset_conversation}
         handlers.get(name, self._toggle)()
 
     def _retire_listener(self):
@@ -568,6 +610,7 @@ class Dikte:
                 "pause": self.toggle_pause,
                 "ask-cancel": self.cancel_ask,
                 "ask-reset": self.reset_conversation,
+                "reset": self.reset_conversation,
                 "meeting-cancel": self.cancel_meeting,
                 "settings": self.open_settings,
                 "home": self.open_home,
@@ -741,6 +784,10 @@ class Dikte:
             return True
         timer.restart()
         return False
+    def _resume_media(self):
+        if self._paused_media:
+            media.resume_media(self._paused_media)
+            self._paused_media = []
 
     def _the_front(self):
         """The application a recording is about to start from, or None.
@@ -788,6 +835,8 @@ class Dikte:
 
     def _begin_recording(self, owner):
         """One microphone, so one of the two holds it at a time."""
+        if not self._paused_media:
+            self._paused_media = media.pause_media()
         self.recorder_owner = owner
         self._run_id += 1
         self._clear_pause()
@@ -872,6 +921,7 @@ class Dikte:
     def stop(self):
         if self.state != RECORDING:
             return
+        self._resume_media()
         self.cues.play("stop")
         self.ticker.stop()
         self._clear_pause()
@@ -884,6 +934,7 @@ class Dikte:
     def stop_ask(self):
         if self.ask_state != RECORDING:
             return
+        self._resume_media()
         self.cues.play("stop")
         self.ticker.stop()
         self._clear_pause()
@@ -927,6 +978,7 @@ class Dikte:
         """Throw away whichever recording is running."""
         if not self.recording:
             return
+        self._resume_media()
         asking = self.ask_state == RECORDING
         self.ticker.stop()
         self._clear_pause()
@@ -1255,6 +1307,7 @@ class Dikte:
 
     def _on_recorder_error(self, message):
         """The microphone itself could not run, so it belongs to whoever asked."""
+        self._resume_media()
         owner, self.recorder_owner = self.recorder_owner, None
         self.paste_override.pop(owner, None)
         self.ticker.stop()
@@ -1841,5 +1894,7 @@ def run_app(args):
         QTimer.singleShot(0, dikte.toggle_ask)
     elif command == "meeting":
         QTimer.singleShot(0, dikte.toggle_meeting)
+
+    _start_cpu_guard(app)
 
     return app.exec()

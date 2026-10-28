@@ -1,5 +1,8 @@
 """The login start, and where a window opened from the tray comes up."""
 
+import os
+import subprocess
+import sys
 import unittest
 from unittest import mock
 
@@ -46,6 +49,49 @@ class LoginStart(unittest.TestCase):
                 mock.patch.object(app, "_hand_over") as hand_over:
             app.run_app(["home"])
         hand_over.assert_called_once_with("home")
+
+
+class CpuSafety(unittest.TestCase):
+    """A runaway Python thread must stop the real Qt loop, not just set a flag."""
+
+    SCRIPT = """
+import sys, threading, time
+from PyQt6.QtCore import QCoreApplication, QTimer
+from dikte.app import _cpu_guard
+
+app = QCoreApplication([])
+stopped = threading.Event()
+app.aboutToQuit.connect(stopped.set)
+threading.Thread(target=_cpu_guard, args=(app, stopped),
+                 kwargs={"interval": .02, "limit": .8, "duration": .2,
+                         "grace": 1}, daemon=True).start()
+def burn():
+    end = time.monotonic() + float(sys.argv[1])
+    while time.monotonic() < end:
+        pass
+threading.Thread(target=burn, daemon=True).start()
+QTimer.singleShot(600, app.quit)
+start = time.monotonic()
+app.exec()
+print(round(time.monotonic() - start, 2))
+"""
+
+    def run_guard(self, duration):
+        env = {**os.environ, "QT_QPA_PLATFORM": "offscreen"}
+        return subprocess.run([sys.executable, "-c", self.SCRIPT, str(duration)],
+                              capture_output=True, text=True, env=env, timeout=5)
+
+    def test_sustained_cpu_stops_the_application(self):
+        result = self.run_guard(.5)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("CPU safety stop", result.stderr)
+        self.assertLess(float(result.stdout), .5)
+
+    def test_short_cpu_burst_does_not_stop_the_application(self):
+        result = self.run_guard(.06)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn("CPU safety stop", result.stderr)
+        self.assertGreater(float(result.stdout), .5)
 
 
 class FakeScreen:

@@ -4,6 +4,7 @@ import contextlib
 import os
 import queue
 import subprocess
+import threading
 import time
 import unittest
 from unittest import mock
@@ -175,6 +176,38 @@ class Bindings(DikteTest):
         self.assertEqual(fired({29}), ["toggle"])          # ctrl
         self.assertEqual(fired({29, 56}), ["cancel"])      # ctrl + alt
         self.assertEqual(fired({29, 42}), [])              # ctrl + shift
+
+    def test_closed_device_does_not_spin(self):
+        reader, writer = os.pipe()
+        os.close(writer)
+        listener = hotkey.EvdevHotkey()
+        devices = [reader]
+        thread = threading.Thread(target=listener._loop, args=(devices,))
+        thread.start()
+        thread.join(1)
+        if thread.is_alive():
+            listener._stop.set()
+            thread.join(1)
+        self.assertFalse(thread.is_alive())
+        self.assertEqual(devices, [])
+
+    def test_losing_one_device_keeps_other_keyboard_listening(self):
+        lost, writer = os.pipe()
+        os.close(writer)
+        kept, writer = os.pipe()
+        listener = hotkey.EvdevHotkey()
+        devices = [lost, kept]
+        thread = threading.Thread(target=listener._loop, args=(devices,))
+        try:
+            thread.start()
+            time.sleep(0.05)
+            self.assertTrue(thread.is_alive())
+            self.assertEqual(devices, [kept])
+        finally:
+            listener._stop.set()
+            os.close(writer)
+            thread.join(1)
+        self.assertFalse(thread.is_alive())
 
 
 class Chooser(DikteTest):

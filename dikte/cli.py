@@ -50,8 +50,7 @@ GUI_VERBS = {"", "home", "settings", "toggle", "ask", "meeting"}
 # Asking a process that is not there to stop, cancel or quit is not a failure;
 # it is already in the state that was asked for.
 IDEMPOTENT_VERBS = {"cancel", "stop", "quit", "restart", "ask-cancel",
-                    "ask-reset", "meeting-cancel", "pause"}
-
+                    "ask-reset", "reset", "meeting-cancel", "pause"}
 _app = None
 
 
@@ -1210,9 +1209,8 @@ def build_parser():
                          choices=("status", "reset"))
     session.set_defaults(func=cmd_session)
 
-    for name in ("ask-cancel", "ask-reset"):
+    for name in ("ask-cancel", "ask-reset", "reset"):
         leaf(subs, name).set_defaults(func=cmd_plain)
-
     # --- a file -----------------------------------------------------------
     transcribe = leaf(subs, "transcribe", "transcribe an audio or video file")
     transcribe.add_argument("file")

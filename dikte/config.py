@@ -576,6 +576,7 @@ DEFAULTS = {
 
     # --- speaking a command to an agent -------------------------------------
     "assistant_shortcut": "",       # empty -> tray only
+    "assistant_reset_shortcut": "",  # new conversation on the next agent command
     "assistant_provider": "claude",  # claude | codex | agy | openrouter
     "assistant_model": "sonnet",    # Claude Code: an alias, or a full model id
     "assistant_permission_mode": "auto",
